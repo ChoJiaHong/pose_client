@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package pose;
+
+service Mirror {
+    rpc SkeletonFrame (FrameRequest) returns (FrameResponse);
+}
+
+message FrameRequest {
+    bytes image_data = 1;
+}
+
+message FrameResponse {
+    string skeletons = 1;  // 這將是 JSON 字串格式的骨架資料
+}
