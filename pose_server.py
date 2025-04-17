@@ -9,6 +9,8 @@ from ultralytics import YOLO
 from config import settings
 import json
 from grpc_health.v1 import health_pb2_grpc, health_pb2
+import torch
+import threading
 
 class HealthServicer(health_pb2_grpc.HealthServicer):
     def Check(self, request, context):
@@ -17,6 +19,13 @@ class HealthServicer(health_pb2_grpc.HealthServicer):
 class PoseDetectionService(pose_pb2_grpc.MirrorServicer):
     def __init__(self):
         self.yolo_model = YOLO(settings.weights)
+        self.yolo_model.to("cuda")
+        self.thread_local = threading.local()  # 每條 thread 對應一條 stream
+
+    def get_cuda_stream(self):
+        if not hasattr(self.thread_local, "stream"):
+            self.thread_local.stream = torch.cuda.Stream()
+        return self.thread_local.stream
 
     def SkeletonFrame(self, request, context):
         try:
@@ -24,8 +33,16 @@ class PoseDetectionService(pose_pb2_grpc.MirrorServicer):
             img_data = np.frombuffer(request.image_data, np.uint8)
             frame = cv2.imdecode(img_data, cv2.IMREAD_COLOR)
 
-            # 使用YOLO模型進行推論
-            yolo_results = self.yolo_model(frame, device=settings.device, conf=settings.conf_thres, iou=settings.iou_thres)
+            # 前處理圖片（BGR ➜ RGB ➜ Tensor）
+            image = cv2.resize(frame, (640, 640))
+            image = image[:, :, ::-1].transpose(2, 0, 1) / 255.0
+            image = torch.tensor(image, dtype=torch.float32).unsqueeze(0).cuda(non_blocking=True)
+
+            # 使用該 thread 專屬的 CUDA stream
+            stream = self.get_cuda_stream()
+            with torch.cuda.stream(stream):
+                yolo_results = self.yolo_model(image, device=settings.device, conf=settings.conf_thres, iou=settings.iou_thres)
+            stream.synchronize()
 
             # 轉換 YOLO 結果為 landmarks 格式
             skeletons = []
@@ -53,9 +70,8 @@ class PoseDetectionService(pose_pb2_grpc.MirrorServicer):
                 continue
 
             landmarks.append((int(x_coord), int(y_coord), round(float(conf), 3)))
-        
-        return landmarks
 
+        return landmarks
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
@@ -69,7 +85,6 @@ def serve():
             time.sleep(86400)
     except KeyboardInterrupt:
         server.stop(0)
-
 
 if __name__ == "__main__":
     serve()
