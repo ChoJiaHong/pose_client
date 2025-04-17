@@ -1,5 +1,5 @@
 import grpc
-import cv2
+
 import pose_pb2
 import pose_pb2_grpc
 import os
@@ -7,7 +7,8 @@ import numpy as np
 from config import settings
 import time
 import asyncio
-
+import io
+from PIL import Image
 class PoseDetectionClient:
     def __init__(self, server):
         channel = grpc.insecure_channel(server)
@@ -16,11 +17,15 @@ class PoseDetectionClient:
     def send_image(self, image_path):
         try:
             # 讀取圖片
-            image = cv2.imread(image_path)
-            _, img_data = cv2.imencode('.jpg', image)
+            image = Image.open(image_path)
+
+            # 建立 BytesIO 物件並以 JPEG 格式儲存圖片
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            img_data = buffer.getvalue()
 
             # 傳送圖片給Server
-            request = pose_pb2.FrameRequest(image_data=img_data.tobytes())
+            request = pose_pb2.FrameRequest(image_data=img_data)
             response = self.stub.SkeletonFrame(request)
 
             return response
@@ -31,7 +36,7 @@ class PoseDetectionClient:
 
 
 def process_images(image_path):
-    client = PoseDetectionClient('10.52.52.25:' + '30500')
+    client = PoseDetectionClient('172.22.9.141:' + '30562')
 
     response = client.send_image(image_path)
     if response:
