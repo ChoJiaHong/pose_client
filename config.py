@@ -39,6 +39,14 @@ class Settings(BaseSettings):
 
     # class Config:
     #    env_file = "env.txt"
+    batch_size: int = 5               # 每個模型最多 batch 數量
+    queue_timeout: float = 0.01      # 等待湊 batch 的最長時間（秒）
+    num_workers: int = 5
 
+    # onnx model
+    onnx_weights: str = 'yolov8n-pose.onnx'
 
+    model_count: int = 5
+    num_runs: int = 300
+    image_path: str = '1280.jpg'
 settings = Settings()
